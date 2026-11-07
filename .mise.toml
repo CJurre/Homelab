@@ -1,0 +1,38 @@
+[tools]
+opentofu = "latest"
+"pipx:ansible-core" = "latest"
+sops = "latest"
+age = "latest"
+pre-commit = "latest"
+gitleaks = "latest"
+
+flux2 = "latest"
+kubectl = "latest"
+helm = "latest"
+"aqua:kdash-rs/kdash" = "latest"
+
+[env]
+SOPS_AGE_KEY_FILE = "{{env.HOME}}/.config/sops/age/keys.txt"
+ANSIBLE_CONFIG = "{{config_root}}/ansible/ansible.cfg"
+KUBECONFIG = "{{config_root}}/kubeconfig"
+
+[tasks.setup]
+description = "Install tools and git hooks"
+run = ["mise install", "pre-commit install"]
+
+[tasks.age-key]
+description = "Create your SOPS age key (once per machine)"
+run = "mkdir -p ~/.config/sops/age && age-keygen -o ~/.config/sops/age/keys.txt"
+
+[tasks.ansible-galaxy]
+description = "Install ansible-galaxy collection"
+run = "ansible-galaxy collection install -r ansible/requirements.yaml"
+
+[tasks.iso]
+description = "Build Proxmox ISOs (default: all hosts)"
+dir = "ansible"
+usage = '''
+arg "[hosts]" default="proxmox_nodes" help="mini-merry, mini-merry,shark-submerge, or proxmox_nodes for all"
+flag "-c --check" help="Dry run (--check --diff)"
+'''
+run = "ansible-playbook playbooks/00-answers.yaml --limit ${usage_hosts},localhost ${usage_check:+--check --diff}"

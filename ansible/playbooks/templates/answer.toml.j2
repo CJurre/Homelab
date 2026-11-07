@@ -1,0 +1,20 @@
+[global]
+keyboard = "{{ pve_keyboard }}"
+country = "{{ pve_country }}"
+fqdn = "{{ inventory_hostname }}.{{ pve_domain }}"
+mailto = "{{ pve_mailto }}"
+timezone = "{{ pve_timezone }}"
+root-password-hashed = "{{ pve_root_password_hash }}"
+root-ssh-keys = {{ pve_root_ssh_keys | to_json }}
+
+[network]
+source = "from-answer"
+cidr = "{{ pve_ip }}"
+gateway = "{{ pve_gateway }}"
+dns = "{{ pve_dns }}"
+filter.ID_NET_NAME_MAC = "*{{ pve_mac | replace(':', '') | lower }}"
+
+[disk-setup]
+filesystem = "{{ pve_filesystem }}"
+zfs.raid = "{{ pve_zfs_raid }}"
+filter.ID_SERIAL = "*{{ pve_boot_disk_serial }}*"

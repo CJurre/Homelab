@@ -1,0 +1,13 @@
+---
+ansible_user: root
+ansible_host: "{{ pve_ip.split('/')[0] }}"
+
+pve_gateway: 192.168.0.1
+pve_dns: 1.1.1.1
+
+pve_timezone: Europe/Brussels
+pve_keyboard: en-us
+pve_country: be
+
+pve_filesystem: zfs
+pve_zfs_raid: raid0

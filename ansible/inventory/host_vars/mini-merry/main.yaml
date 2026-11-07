@@ -1,0 +1,2 @@
+pve_role: compute
+pve_cluster_create: true

@@ -1,0 +1,81 @@
+---
+- name: Prepare build directory
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Ensure build directories exist
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/../../build/answers"
+        state: directory
+        mode: "0700"
+
+- name: Render Proxmox answer files and build ISOs
+  hosts: proxmox
+  connection: local
+  gather_facts: false
+  vars:
+    build_dir: "{{ playbook_dir }}/../../build"
+    answer_file: "{{ build_dir }}/answers/{{ inventory_hostname }}.toml"
+    iso_file: "{{ build_dir }}/{{ inventory_hostname }}.iso"
+    sum_file: "{{ iso_file }}.answer.sha256"
+  tasks:
+    - name: Render, build and clean up
+      delegate_to: localhost
+      block:
+        - name: Render answer file
+          ansible.builtin.template:
+            src: answer.toml.j2
+            dest: "{{ answer_file }}"
+            mode: "0600"
+          changed_when: false
+
+        - name: Validate answer file
+          ansible.builtin.command:
+            argv:
+              - proxmox-auto-install-assistant
+              - validate-answer
+              - "{{ answer_file }}"
+          register: validate
+          changed_when: false
+          failed_when: validate.rc != 0 or 'no errors found' not in validate.stdout
+
+        - name: Checksum answer file
+          ansible.builtin.stat:
+            path: "{{ answer_file }}"
+            checksum_algorithm: sha256
+          register: answer
+
+        - name: Check if ISO already exists
+          ansible.builtin.stat:
+            path: "{{ iso_file }}"
+          register: iso
+
+        - name: Build ISO
+          ansible.builtin.command:
+            argv:
+              - proxmox-auto-install-assistant
+              - prepare-iso
+              - "{{ build_dir }}/proxmox-ve.iso"
+              - --fetch-from
+              - iso
+              - --answer-file
+              - "{{ answer_file }}"
+              - --output
+              - "{{ iso_file }}"
+          when: not iso.stat.exists or answer.stat.checksum | default('') != lookup('ansible.builtin.file', sum_file, errors='ignore')
+          changed_when: true
+          throttle: 1
+
+        - name: Remember which answer the ISO was built from
+          ansible.builtin.copy:
+            content: "{{ answer.stat.checksum }}"
+            dest: "{{ sum_file }}"
+            mode: "0600"
+          when: answer.stat.checksum is defined
+      always:
+        - name: Remove answer file
+          ansible.builtin.file:
+            path: "{{ answer_file }}"
+            state: absent
+          changed_when: false

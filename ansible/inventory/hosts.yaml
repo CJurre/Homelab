@@ -1,0 +1,10 @@
+---
+all:
+  children:
+    proxmox:
+      children:
+        proxmox_nodes:
+          hosts:
+            shiro-mokuba:
+            mini-merry:
+            shark-submerge:
