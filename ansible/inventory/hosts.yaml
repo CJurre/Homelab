@@ -8,3 +8,6 @@ all:
             shiro-mokuba:
             mini-merry:
             shark-submerge:
+        proxmox_test:
+          hosts:
+            pve-test:

@@ -47,47 +47,63 @@ Currently **pve** is used and runs all services, when ready everything will be m
 
 Ideally in this planning, I would need to be able to fully remove everything and start from a fresh install and it would work
 
-#### Stage 1: **Core**
+#### Stage 1: Foundation
 
-- [] Continueing automating setup of Proxmox cluster
+- [ ] Repo, mise, SOPS/age, pre-commit, Renovate
+- [ ] Automated Proxmox installs (test VM → pve2 → pve3)
+- [ ] Ansible: base Proxmox config + cluster (pve2 + pve3)
+- [ ] Ansible: storage (ZFS bulk pools, NFS exports)
+- [ ] Ansible: PBS on pve3 + back up old pve1 (safety net)
 
-#### Stage 2: Secret management + Cluster setup
+#### Stage 2: Platform outside k3s
 
-- [] **Ansible**: Setup storage of the proxmox cluster
-- [] **OpenTofu/Ansible**: Base for creating **LXC**/**VM**s automatically
-- [] **OpenTofu/Ansible**: Setup **OpenBAO**
-- [] **OpenTofu/Ansible**: Setup **VyOS**
+- [ ] OpenTofu: VM/LXC modules + cloud-image templates
+- [ ] OpenTofu/Ansible: OpenBao (1 node) + init/unseal runbook
+- [ ] OpenTofu: OpenBao config (policies, AppRole for Ansible)
+- [ ] OpenTofu/Ansible: Garage S3 on pve3 (backup target + Tofu state)
+- [ ] OpenTofu/Ansible: VyOS on a test VLAN (no cutover yet)
 
-#### Stage 3: Base K3S setup
+#### Stage 3: k3s + GitOps
 
-- [] **OpenTofu/Ansible**: Creation of K3S cluster
-- [] **Kubernetes**: Setup Postgresql + [CloudNativePG](https://github.com/cloudnative-pg/cloudnative-pg)
-- [] **Kubernetes**: Setup certificates manager
-- [] **Kubernetes**: Setup ingress + traefik
-- [] **Kubernetes**: Setup k8s_gateway
-- [] **Kubernetes**: Setup [Cilium](https://docs.cilium.io/en/stable/installation/k3s/) to control traffic inside of the cluster
+- [ ] OpenTofu/Ansible: k3s VMs + k3s install
+- [ ] Ansible: Cilium (CNI, LB-IPAM)
+- [ ] Flux bootstrap (GitHub/Codeberg as source)
+- [ ] Flux: External Secrets → OpenBao
+- [ ] Flux: Longhorn + NFS CSI + StorageClasses
+- [ ] Flux: cert-manager + Traefik + k8s_gateway
+- [ ] Flux: CloudNativePG + backups to Garage
+- [ ] OPNsense Unbound forwards the home zone to k8s_gateway
+- [ ] CI: lint + tofu plan on pull requests
+- [ ] Rebuild test: wipe k3s, restore from Git + backups
 
-#### Stage 4: Setup git + CI/CD
+#### Stage 4: Observability + backups verified
 
-- [] **Kubernetes**: Setup Forgejo + mirror to github/codeberg
-- [] **Kubernetes**: CI/CD with FluxCD/ArgoCD
-- [] **Ansible**: Auto deploying current cluster to a fresh K3S node/cluster without issues
+- [ ] Basic monitoring + alerts (VictoriaMetrics/Grafana, disk/node alerts)
+- [ ] Off-site backup sync
+- [ ] Restore tests: PBS VM, Longhorn volume, CNPG point-in-time
 
-#### Stage 5: Access Control + Start installing applications
+#### Stage 5: Auth + first apps
 
-- [] **Kubernetes**: Setup Authelia/Keycloak for central auth managment of applications
-- [] **Kubernetes**: Setup arr stack
-- [] **Migration**: Migrate the data of scrob
+- [ ] Authelia (SSO)
+- [ ] arr stack (configs on Longhorn, media on NFS)
+- [ ] Migrate scrob data
 
-#### Stage 6: Setup applications with critical data
+#### Stage 6: Critical data apps
 
-- [] **Kubernetes**: Setup **Immich**
-- [] **Kubernetes**: Setup **Nextcloud**
-- [] **Kubernetes**: Setup **Vaultwarden**
-- [] **Migration**: Copy data to the new applications [**Critical data** -> Backup to personal drive]
+- [ ] Vaultwarden (independent of SSO, high priority)
+- [ ] Immich (photos on NFS, CNPG with VectorChord)
+- [ ] Nextcloud
+- [ ] Migrate data (copy to a personal drive first)
 
-#### Stage 7: Varia
+#### Stage 7: Cutover + full HA
 
-- [] Monitors of all data and statistics
-- [] [Renovate](https://github.com/renovatebot/renovate) for up-to-date applications
-- [] ...
+- [ ] Router cutover OPNsense → VyOS
+- [ ] Empty pve1, rebuild it, join the cluster
+- [ ] Scale up: 3 etcd, 3 OpenBao, Longhorn x2, CNPG x2, VyOS HA
+- [ ] Pull-the-plug tests per host
+
+#### Stage 8: Extras
+
+- [ ] Forgejo mirror (optional)
+- [ ] More dashboards and statistics
+- [ ] ...

@@ -1,0 +1,9 @@
+---
+# Test VM
+pve_ip: 192.168.0.55/24
+pve_gateway: 192.168.0.1
+pve_dns: 192.168.0.1
+pve_mac: "bc:24:11:00:00:99"
+pve_boot_disk_serial: "PVETEST001"
+pve_bulk_disk_serial: "PVETESTBULK"
+pve_role: test

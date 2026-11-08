@@ -1,3 +1,6 @@
+[settings]
+npm.package_manager = "npm"
+
 [tools]
 opentofu = "latest"
 "pipx:ansible-core" = "latest"
@@ -10,6 +13,9 @@ flux2 = "latest"
 kubectl = "latest"
 helm = "latest"
 "aqua:kdash-rs/kdash" = "latest"
+
+node = "24"
+"npm:renovate" = "latest"
 
 [env]
 SOPS_AGE_KEY_FILE = "{{env.HOME}}/.config/sops/age/keys.txt"
@@ -36,3 +42,12 @@ arg "[hosts]" default="proxmox_nodes" help="mini-merry, mini-merry,shark-submerg
 flag "-c --check" help="Dry run (--check --diff)"
 '''
 run = "ansible-playbook playbooks/00-answers.yaml --limit ${usage_hosts},localhost ${usage_check:+--check --diff}"
+
+[tasks.renovate-dry]
+description = "Dry-run Renovate against this directory"
+env = { LOG_LEVEL = "debug" }
+run = "renovate --platform=local --repository-cache=reset"
+
+[tasks.renovate-validate]
+description = "Validate Renovate config"
+run = "renovate-config-validator --strict"
