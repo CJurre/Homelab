@@ -1,18 +1,39 @@
 ---
+- name: Install needrestart
+  ansible.builtin.apt:
+    name: needrestart
+    state: present
+    update_cache: true
+
+- name: Configure needrestart to only list, never restart
+  ansible.builtin.copy:
+    dest: /etc/needrestart/conf.d/50-homelab.conf
+    content: |
+      # Managed by Ansible (proxmox_base)
+      $nrconf{restart} = 'l';
+    owner: root
+    group: root
+    mode: "0644"
+
 - name: Upgrade all packages
   ansible.builtin.apt:
-    update_cache: true
     upgrade: dist
-  register: proxmox_base_pve_upgrade
 
 - name: Install base packages
   ansible.builtin.apt:
     name: "{{ proxmox_base_pve_base_packages }}"
     state: present
 
-- name: Reboot after upgrades
+- name: Check whether the running kernel is outdated
+  ansible.builtin.command: needrestart -b -k
+  register: proxmox_base_needrestart
+  changed_when: false
+  check_mode: false
+
+- name: Reboot after kernel upgrade
   ansible.builtin.reboot:
     reboot_timeout: 600
   when:
-    - proxmox_base_pve_upgrade is changed
     - proxmox_base_pve_allow_reboot
+    - >-
+      proxmox_base_needrestart.stdout is search('NEEDRESTART-KSTA: [23]')

@@ -2,4 +2,7 @@
 - name: Base configuration
   hosts: proxmox
   roles:
-    - proxmox_base
+    - role: proxmox_base
+      tags: [base]
+    - role: proxmox_storage
+      tags: [storage]

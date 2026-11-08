@@ -13,5 +13,6 @@ proxmox_base_pve_base_packages:
   - curl
   - iotop
   - lm-sensors
+  - needrestart
 
 proxmox_base_pve_allow_reboot: true
