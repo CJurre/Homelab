@@ -1,0 +1,19 @@
+---
+- name: Remove enterprise repositories
+  ansible.builtin.file:
+    path: "/etc/apt/sources.list.d/{{ item }}"
+    state: absent
+  loop:
+    - pve-enterprise.list
+    - pve-enterprise.sources
+    - ceph.list
+    - ceph.sources
+
+- name: Add Proxmox no-subscription repository
+  ansible.builtin.deb822_repository:
+    name: proxmox
+    types: [deb]
+    uris: ["{{ proxmox_base_pve_repo_url }}"]
+    suites: ["{{ ansible_facts['distribution_release'] }}"]
+    components: ["{{ proxmox_base_pve_repo_component }}"]
+    signed_by: "{{ proxmox_base_pve_repo_keyring }}"

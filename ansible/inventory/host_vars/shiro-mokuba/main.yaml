@@ -1,1 +1,2 @@
 pve_role: compute
+pve_host_pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINmL/03LXtNMQjD43MXoxNAA/ry973ArAkMkty8OFB+k root@shiro-mokuba"

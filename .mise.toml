@@ -22,20 +22,33 @@ SOPS_AGE_KEY_FILE = "{{env.HOME}}/.config/sops/age/keys.txt"
 ANSIBLE_CONFIG = "{{config_root}}/ansible/ansible.cfg"
 KUBECONFIG = "{{config_root}}/kubeconfig"
 
-[tasks.setup]
-description = "Install tools and git hooks"
-run = ["mise install", "pre-commit install"]
+# Test VM: host_vars/pve-test
+TEST_PVE_HOST = "192.168.0.30"
+TEST_VMID = "999"
+TEST_STORAGE = "local-lvm"
+TEST_ISO_DIR = "/var/lib/vz/template/iso"
+TEST_MAC = "BC:24:11:00:00:99"
+TEST_IP = "192.168.0.55"
 
-[tasks.age-key]
+# -- Setup
+
+[tasks.setup]
+description = "Install tools, git hooks and Ansible collections"
+run = ["mise install", "pre-commit install", "mise run setup:galaxy"]
+
+[tasks."setup:age-key"]
 description = "Create your SOPS age key (once per machine)"
 run = "mkdir -p ~/.config/sops/age && age-keygen -o ~/.config/sops/age/keys.txt"
 
-[tasks.ansible-galaxy]
-description = "Install ansible-galaxy collection"
+[tasks."setup:galaxy"]
+description = "Install Ansible Galaxy collections"
 run = "ansible-galaxy collection install -r ansible/requirements.yaml"
 
-[tasks.iso]
+# -- Proxmox
+
+[tasks."pve:iso"]
 description = "Build Proxmox ISOs (default: all hosts)"
+alias = "iso"
 dir = "ansible"
 usage = '''
 arg "[hosts]" default="proxmox_nodes" help="mini-merry, mini-merry,shark-submerge, or proxmox_nodes for all"
@@ -43,11 +56,123 @@ flag "-c --check" help="Dry run (--check --diff)"
 '''
 run = "ansible-playbook playbooks/00-answers.yaml --limit ${usage_hosts},localhost ${usage_check:+--check --diff}"
 
-[tasks.renovate-dry]
+[tasks."pve:play"]
+description = "Configure Proxmox hosts (default: all)"
+dir = "ansible"
+usage = '''
+arg "[hosts]" default="proxmox_nodes" help="Host, comma list, or group"
+flag "-c --check" help="Dry run (--check --diff)"
+'''
+run = "ansible-playbook playbooks/01-proxmox.yaml --limit ${usage_hosts} ${usage_check:+--check --diff}"
+
+# -- Test VM
+
+[tasks."test:upload"]
+description = "Build the pve-test ISO and upload it to the test host"
+shell = "bash -c"
+run = """
+set -euo pipefail
+mise run pve:iso pve-test
+scp build/pve-test.iso root@$TEST_PVE_HOST:$TEST_ISO_DIR/pve-test.iso
+"""
+
+[tasks."test:create"]
+description = "Create the test VM"
+shell = "bash -c"
+run = """
+set -euo pipefail
+if ssh root@$TEST_PVE_HOST "qm status $TEST_VMID" &>/dev/null; then
+  echo "VM $TEST_VMID already exists. Run: mise run test:destroy"; exit 1
+fi
+ssh root@$TEST_PVE_HOST "qm create $TEST_VMID --name pve-test \
+  --memory 8192 --cores 8 --cpu host \
+  --machine q35 --bios ovmf --efidisk0 $TEST_STORAGE:1,efitype=4m \
+  --virtio0 $TEST_STORAGE:32,serial=PVETEST001 \
+  --virtio1 $TEST_STORAGE:20,serial=PVETESTBULK \
+  --net0 virtio=$TEST_MAC,bridge=vmbr0 \
+  --ide2 local:iso/pve-test.iso,media=cdrom \
+  --boot 'order=virtio0;ide2'"
+echo "Created VM $TEST_VMID"
+"""
+
+[tasks."test:start"]
+description = "Start the test VM"
+run = "ssh root@$TEST_PVE_HOST qm start $TEST_VMID"
+
+[tasks."test:stop"]
+description = "Stop the test VM"
+run = "ssh root@$TEST_PVE_HOST qm stop $TEST_VMID"
+
+[tasks."test:destroy"]
+description = "Delete the test VM including disks and snapshots"
+shell = "bash -c"
+run = """
+set -euo pipefail
+ssh root@$TEST_PVE_HOST "qm stop $TEST_VMID --skiplock 1 2>/dev/null || true; qm destroy $TEST_VMID --purge 1 --destroy-unreferenced-disks 1"
+echo "Destroyed VM $TEST_VMID"
+"""
+
+[tasks."test:wait"]
+description = "Wait until the test VM answers on SSH (max 20 min)"
+shell = "bash -c"
+run = """
+set -euo pipefail
+echo -n "Waiting for SSH on $TEST_IP "
+for i in $(seq 1 120); do
+  if ssh -o ConnectTimeout=5 -o BatchMode=yes \
+       -o UserKnownHostsFile=ansible/known_hosts -o StrictHostKeyChecking=yes \
+       root@$TEST_IP true 2>/dev/null; then
+    echo " up!"; exit 0
+  fi
+  echo -n "."; sleep 10
+done
+echo " timed out"; exit 1
+"""
+
+[tasks."test:snapshot"]
+description = "Snapshot the test VM (default: clean-install)"
+usage = 'arg "[name]" default="clean-install"'
+run = "ssh root@$TEST_PVE_HOST qm snapshot $TEST_VMID ${usage_name}"
+
+[tasks."test:rollback"]
+description = "Roll back to a snapshot and start (default: clean-install)"
+usage = 'arg "[name]" default="clean-install"'
+shell = "bash -c"
+run = """
+set -euo pipefail
+ssh root@$TEST_PVE_HOST "qm stop $TEST_VMID 2>/dev/null || true; qm rollback $TEST_VMID ${usage_name} && qm start $TEST_VMID"
+mise run test:wait
+"""
+
+[tasks."test:snapshots"]
+description = "List snapshots of the test VM"
+run = "ssh root@$TEST_PVE_HOST qm listsnapshot $TEST_VMID"
+
+[tasks."test:fresh"]
+description = "Rebuild ISO, recreate VM, install, snapshot clean-install"
+shell = "bash -c"
+run = """
+set -euo pipefail
+ssh root@$TEST_PVE_HOST "qm status $TEST_VMID" &>/dev/null && mise run test:destroy
+mise run test:upload
+mise run test:create
+mise run test:start
+mise run test:wait
+mise run test:snapshot clean-install
+echo "Fresh pve-test ready, snapshot 'clean-install' taken."
+"""
+
+[tasks."test:play"]
+description = "Run 01-proxmox against the test VM"
+run = "mise run pve:play pve-test"
+
+# -- Renovate
+
+[tasks."renovate:dry"]
 description = "Dry-run Renovate against this directory"
 env = { LOG_LEVEL = "debug" }
 run = "renovate --platform=local --repository-cache=reset"
 
-[tasks.renovate-validate]
+[tasks."renovate:validate"]
 description = "Validate Renovate config"
 run = "renovate-config-validator --strict"

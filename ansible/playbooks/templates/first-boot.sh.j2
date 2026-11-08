@@ -1,0 +1,11 @@
+#!/bin/bash
+set -euo pipefail
+# Managed by Ansible: install the pre-generated SSH host key
+rm -f /etc/ssh/ssh_host_*
+cat > /etc/ssh/ssh_host_ed25519_key <<'EOF'
+{{ pve_ssh_host_key | trim }}
+EOF
+echo '{{ pve_ssh_host_pubkey }}' > /etc/ssh/ssh_host_ed25519_key.pub
+chmod 600 /etc/ssh/ssh_host_ed25519_key
+chmod 644 /etc/ssh/ssh_host_ed25519_key.pub
+systemctl restart ssh

@@ -1,0 +1,18 @@
+---
+- name: Upgrade all packages
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: dist
+  register: proxmox_base_pve_upgrade
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name: "{{ proxmox_base_pve_base_packages }}"
+    state: present
+
+- name: Reboot after upgrades
+  ansible.builtin.reboot:
+    reboot_timeout: 600
+  when:
+    - proxmox_base_pve_upgrade is changed
+    - proxmox_base_pve_allow_reboot

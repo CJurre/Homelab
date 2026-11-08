@@ -1,0 +1,19 @@
+---
+- name: Ensure systemd generator override directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system-generators
+    state: directory
+    mode: "0755"
+
+- name: Disable systemd SSH-over-vsock generator
+  ansible.builtin.file:
+    src: /dev/null
+    dest: /etc/systemd/system-generators/systemd-ssh-generator
+    state: link
+
+- name: Only print errors to the console, not every info message
+  ansible.posix.sysctl:
+    name: kernel.printk
+    value: "3 4 1 3"
+    sysctl_file: /etc/sysctl.d/10-console-loglevel.conf
+    state: present

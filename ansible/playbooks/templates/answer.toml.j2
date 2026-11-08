@@ -18,3 +18,7 @@ filter.ID_NET_NAME_MAC = "*{{ pve_mac | replace(':', '') | lower }}"
 filesystem = "{{ pve_filesystem }}"
 zfs.raid = "{{ pve_zfs_raid }}"
 filter.ID_SERIAL = "*{{ pve_boot_disk_serial }}*"
+
+[first-boot]
+source = "from-iso"
+ordering = "fully-up"

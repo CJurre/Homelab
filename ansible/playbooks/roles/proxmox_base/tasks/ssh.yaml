@@ -1,0 +1,18 @@
+---
+- name: Ensure root SSH keys are present
+  ansible.posix.authorized_key:
+    user: root
+    key: "{{ item }}"
+    state: present
+  loop: "{{ pve_root_ssh_keys }}"
+
+- name: Harden SSH (keys only, no passwords)
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/10-hardening.conf
+    mode: "0644"
+    content: |
+      # Managed by Ansible
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin prohibit-password
+  notify: Restart sshd

@@ -1,5 +1,5 @@
 ---
-- name: Prepare build directory
+- name: Prepare build directory and known_hosts
   hosts: localhost
   connection: local
   gather_facts: false
@@ -10,6 +10,12 @@
         state: directory
         mode: "0700"
 
+    - name: Render known_hosts for all Proxmox hosts
+      ansible.builtin.template:
+        src: known_hosts.j2
+        dest: "{{ playbook_dir }}/../known_hosts"
+        mode: "0644"
+
 - name: Render Proxmox answer files and build ISOs
   hosts: proxmox
   connection: local
@@ -17,8 +23,9 @@
   vars:
     build_dir: "{{ playbook_dir }}/../../build"
     answer_file: "{{ build_dir }}/answers/{{ inventory_hostname }}.toml"
+    firstboot_file: "{{ build_dir }}/answers/{{ inventory_hostname }}-first-boot.sh"
     iso_file: "{{ build_dir }}/{{ inventory_hostname }}.iso"
-    sum_file: "{{ iso_file }}.answer.sha256"
+    sum_file: "{{ iso_file }}.inputs.sha256"
   tasks:
     - name: Render, build and clean up
       delegate_to: localhost
@@ -28,6 +35,13 @@
             src: answer.toml.j2
             dest: "{{ answer_file }}"
             mode: "0600"
+          changed_when: false
+
+        - name: Render first-boot script
+          ansible.builtin.template:
+            src: first-boot.sh.j2
+            dest: "{{ firstboot_file }}"
+            mode: "0700"
           changed_when: false
 
         - name: Validate answer file
@@ -46,6 +60,16 @@
             checksum_algorithm: sha256
           register: answer
 
+        - name: Checksum first-boot script
+          ansible.builtin.stat:
+            path: "{{ firstboot_file }}"
+            checksum_algorithm: sha256
+          register: firstboot
+
+        - name: Combine checksums
+          ansible.builtin.set_fact:
+            inputs_sum: "{{ (answer.stat.checksum ~ firstboot.stat.checksum) | hash('sha256') }}"
+
         - name: Check if ISO already exists
           ansible.builtin.stat:
             path: "{{ iso_file }}"
@@ -61,21 +85,27 @@
               - iso
               - --answer-file
               - "{{ answer_file }}"
+              - --on-first-boot
+              - "{{ firstboot_file }}"
               - --output
               - "{{ iso_file }}"
-          when: not iso.stat.exists or answer.stat.checksum | default('') != lookup('ansible.builtin.file', sum_file, errors='ignore')
+          when: >-
+            not iso.stat.exists or
+            inputs_sum != lookup('ansible.builtin.file', sum_file, errors='ignore') | default('', true)
           changed_when: true
           throttle: 1
 
-        - name: Remember which answer the ISO was built from
+        - name: Remember which inputs the ISO was built from
           ansible.builtin.copy:
-            content: "{{ answer.stat.checksum }}"
+            content: "{{ inputs_sum }}"
             dest: "{{ sum_file }}"
             mode: "0600"
-          when: answer.stat.checksum is defined
       always:
-        - name: Remove answer file
+        - name: Remove rendered secrets
           ansible.builtin.file:
-            path: "{{ answer_file }}"
+            path: "{{ item }}"
             state: absent
+          loop:
+            - "{{ answer_file }}"
+            - "{{ firstboot_file }}"
           changed_when: false

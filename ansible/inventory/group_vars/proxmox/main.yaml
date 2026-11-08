@@ -11,3 +11,8 @@ pve_country: be
 
 pve_filesystem: zfs
 pve_zfs_raid: raid0
+
+ansible_ssh_common_args: >-
+  -o UserKnownHostsFile={{ inventory_dir }}/../known_hosts
+  -o StrictHostKeyChecking=yes
+ansible_python_interpreter: /usr/bin/python3

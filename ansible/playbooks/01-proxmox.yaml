@@ -1,0 +1,5 @@
+---
+- name: Base configuration
+  hosts: proxmox
+  roles:
+    - proxmox_base

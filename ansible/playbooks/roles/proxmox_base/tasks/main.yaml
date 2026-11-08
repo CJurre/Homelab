@@ -1,0 +1,12 @@
+---
+- name: System
+  ansible.builtin.import_tasks: system.yaml
+
+- name: Repositories
+  ansible.builtin.import_tasks: repos.yaml
+
+- name: Packages and upgrades
+  ansible.builtin.import_tasks: packages.yaml
+
+- name: SSH
+  ansible.builtin.import_tasks: ssh.yaml

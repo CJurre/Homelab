@@ -1,2 +1,3 @@
 pve_role: compute
 pve_cluster_create: true
+pve_ssh_host_pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPIXKW+OyYLqqxhHbV1Snc3THpwiidWuPIE3vt35XgyQ root@mini-merry"

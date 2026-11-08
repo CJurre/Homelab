@@ -1,1 +1,2 @@
 pve_role: storage
+pve_ssh_host_pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAD7S+SQyiDT31QOKsPEVRg78SmcSNq+q29RNPgSD4ha root@shark-submerge"

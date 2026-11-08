@@ -1,0 +1,6 @@
+{% for host in groups['proxmox'] %}
+{% set h = hostvars[host] %}
+{% if h.pve_ssh_host_pubkey is defined %}
+{{ h.pve_ssh_host_pubkey | regex_replace('^(\\S+ \\S+).*$', h.pve_ip.split('/')[0] ~ ',' ~ host ~ ',' ~ host ~ '.' ~ h.pve_domain ~ ' \\1') }}
+{% endif %}
+{% endfor %}
