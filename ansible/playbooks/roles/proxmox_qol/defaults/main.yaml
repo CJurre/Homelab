@@ -1,0 +1,10 @@
+---
+proxmox_qol_remove_subscription_popup: true
+proxmox_qol_terminfo_packages:
+  - ncurses-term
+  - kitty-terminfo
+proxmox_qol_packages:
+  - vim
+  - tmux
+  - htop
+  - ncdu

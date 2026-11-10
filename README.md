@@ -49,8 +49,8 @@ Ideally in this planning, I would need to be able to fully remove everything and
 
 #### Stage 1: Foundation
 
-- [ ] Repo, mise, SOPS/age, pre-commit, Renovate
-- [ ] Automated Proxmox installs (test VM → pve2 → pve3)
+- [ X ] Repo, mise, SOPS/age, pre-commit, Renovate
+- [ X ] Automated Proxmox installs (test VM → pve2 → pve3)
 - [ ] Ansible: base Proxmox config + cluster (pve2 + pve3)
 - [ ] Ansible: storage (ZFS bulk pools, NFS exports)
 - [ ] Ansible: PBS on pve3 + back up old pve1 (safety net)

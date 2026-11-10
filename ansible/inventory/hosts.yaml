@@ -11,3 +11,5 @@ all:
         proxmox_test:
           hosts:
             pve-test:
+            pve-test2:
+            pve-test3:

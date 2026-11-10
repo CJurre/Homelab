@@ -6,6 +6,9 @@ pve_dns: 1.1.1.1
 pve_mac: "bc:24:11:00:00:99"
 pve_boot_disk_serial: "PVETEST001"
 pve_bulk_disk_serial: "PVETESTBULK"
+# pve_bulk_disk_serial: "BULK"
 pve_role: test
 pve_ssh_host_pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFebo/Zffcu7CzNZNTKOA4O8I3wMTp0HruSjdwBaGxKI root@pve-test"
 pve_base_packages: ["qemu-agent-guest"]
+
+proxmox_storage_allow_pool_create: true

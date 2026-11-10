@@ -1,0 +1,13 @@
+---
+# Test VM
+pve_ip: 192.168.0.56/24
+pve_gateway: 192.168.0.1
+pve_dns: 1.1.1.1
+pve_mac: "bc:24:11:00:00:98"
+pve_boot_disk_serial: "PVETEST002"
+pve_bulk_disk_serial: "PVETESTBULK2"
+pve_role: test
+pve_ssh_host_pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIL5bed/JJvHGmk3gPvA6x0A/uDuI/XYpY0dAVGx3t2oR root@pve-test2"
+pve_base_packages: ["qemu-agent-guest"]
+
+proxmox_storage_allow_pool_create: true

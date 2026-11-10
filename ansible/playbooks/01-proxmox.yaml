@@ -4,5 +4,7 @@
   roles:
     - role: proxmox_base
       tags: [base]
+    - role: proxmox_qol
+      tags: [qol]
     - role: proxmox_storage
       tags: [storage]

@@ -1,0 +1,5 @@
+proxmox_storage_bulk_disk_serial: "{{ pve_bulk_disk_serial | default('') }}"
+proxmox_storage_bulk_disk_min_size: 10737418240
+proxmox_storage_pool_name: "bulk"
+proxmox_storage_ashift: 12
+proxmox_storage_allow_pool_create: false

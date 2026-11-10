@@ -22,13 +22,13 @@ SOPS_AGE_KEY_FILE = "{{env.HOME}}/.config/sops/age/keys.txt"
 ANSIBLE_CONFIG = "{{config_root}}/ansible/ansible.cfg"
 KUBECONFIG = "{{config_root}}/kubeconfig"
 
-# Test VM: host_vars/pve-test
+# Test nodes: see scripts/test-node.sh and host_vars/pve-test*
 TEST_PVE_HOST = "192.168.0.30"
-TEST_VMID = "999"
 TEST_STORAGE = "local-lvm"
 TEST_ISO_DIR = "/var/lib/vz/template/iso"
-TEST_MAC = "BC:24:11:00:00:99"
-TEST_IP = "192.168.0.55"
+TEST_NODES = "pve-test pve-test2 pve-test3"
+TEST_MEMORY = "4096"
+TEST_CORES = "4"
 
 # -- Setup
 
@@ -62,109 +62,302 @@ dir = "ansible"
 usage = '''
 arg "[hosts]" default="proxmox_nodes" help="Host, comma list, or group"
 flag "-c --check" help="Dry run (--check --diff)"
+flag "-t --tags <tags>" help="Only run roles/tasks with these tags, e.g. qol"
 '''
-run = "ansible-playbook playbooks/01-proxmox.yaml --limit ${usage_hosts} ${usage_check:+--check --diff}"
+run = "ansible-playbook playbooks/01-proxmox.yaml --limit ${usage_hosts} ${usage_check:+--check --diff} ${usage_tags:+--tags $usage_tags}"
 
-# -- Test VM
+# -- Test nodes (node = pve-test | pve-test2 | pve-test3 | all)
 
 [tasks."test:upload"]
-description = "Build the pve-test ISO and upload it to the test host"
+description = "Build ISOs and upload them (default: pve-test, or all)"
+usage = 'arg "[node]" default="pve-test"'
 shell = "bash -c"
 run = """
 set -euo pipefail
-mise run pve:iso pve-test
-scp build/pve-test.iso root@$TEST_PVE_HOST:$TEST_ISO_DIR/pve-test.iso
+source scripts/test-node.sh
+TEST_ARG="${usage_node}"
+for n in $(test_resolve "${usage_node}"); do
+  test_node_load "$n"
+  mise run pve:iso $TEST_NAME
+  scp build/$TEST_NAME.iso root@$TEST_PVE_HOST:$TEST_ISO_DIR/$TEST_NAME.iso
+done
 """
 
 [tasks."test:create"]
-description = "Create the test VM"
+description = "Create test VMs (default: pve-test, or all)"
+usage = 'arg "[node]" default="pve-test"'
 shell = "bash -c"
 run = """
 set -euo pipefail
-if ssh root@$TEST_PVE_HOST "qm status $TEST_VMID" &>/dev/null; then
-  echo "VM $TEST_VMID already exists. Run: mise run test:destroy"; exit 1
-fi
-ssh root@$TEST_PVE_HOST "qm create $TEST_VMID --name pve-test \
-  --memory 8192 --cores 8 --cpu host \
-  --machine q35 --bios ovmf --efidisk0 $TEST_STORAGE:1,efitype=4m \
-  --virtio0 $TEST_STORAGE:32,serial=PVETEST001 \
-  --virtio1 $TEST_STORAGE:20,serial=PVETESTBULK \
-  --net0 virtio=$TEST_MAC,bridge=vmbr0 \
-  --ide2 local:iso/pve-test.iso,media=cdrom \
-  --boot 'order=virtio0;ide2'"
-echo "Created VM $TEST_VMID"
+source scripts/test-node.sh
+TEST_ARG="${usage_node}"
+for n in $(test_resolve "${usage_node}"); do
+  test_node_load "$n"
+  if test_vm_exists; then
+    test_skip "VM $TEST_VMID already exists, run: mise run test:destroy $TEST_NAME"
+    continue
+  fi
+  BULK_OPT=""
+  if [ -n "$TEST_BULK_SERIAL" ]; then
+    BULK_OPT="--virtio1 $TEST_STORAGE:20,serial=$TEST_BULK_SERIAL"
+  fi
+  ssh root@$TEST_PVE_HOST "qm create $TEST_VMID --name $TEST_NAME \
+    --memory $TEST_MEMORY --cores $TEST_CORES --cpu host \
+    --machine q35 --bios ovmf --efidisk0 $TEST_STORAGE:1,efitype=4m \
+    --virtio0 $TEST_STORAGE:32,serial=$TEST_BOOT_SERIAL $BULK_OPT \
+    --net0 virtio=$TEST_MAC,bridge=vmbr0 \
+    --ide2 local:iso/$TEST_NAME.iso,media=cdrom \
+    --boot 'order=virtio0;ide2'"
+  echo "Created VM $TEST_VMID ($TEST_NAME)"
+done
 """
 
 [tasks."test:start"]
-description = "Start the test VM"
-run = "ssh root@$TEST_PVE_HOST qm start $TEST_VMID"
-
-[tasks."test:stop"]
-description = "Stop the test VM"
-run = "ssh root@$TEST_PVE_HOST qm stop $TEST_VMID"
-
-[tasks."test:destroy"]
-description = "Delete the test VM including disks and snapshots"
+description = "Start test VMs (default: pve-test, or all)"
+usage = 'arg "[node]" default="pve-test"'
 shell = "bash -c"
 run = """
 set -euo pipefail
-ssh root@$TEST_PVE_HOST "qm stop $TEST_VMID --skiplock 1 2>/dev/null || true; qm destroy $TEST_VMID --purge 1 --destroy-unreferenced-disks 1"
-echo "Destroyed VM $TEST_VMID"
+source scripts/test-node.sh
+TEST_ARG="${usage_node}"
+for n in $(test_resolve "${usage_node}"); do
+  test_node_load "$n"
+  if ! test_vm_exists; then
+    test_skip "VM does not exist"
+    continue
+  fi
+  if test_vm_running; then
+    echo "$TEST_NAME already running"
+    continue
+  fi
+  ssh root@$TEST_PVE_HOST qm start $TEST_VMID
+  echo "Started $TEST_NAME"
+done
+"""
+
+[tasks."test:stop"]
+description = "Stop test VMs (default: pve-test, or all)"
+usage = 'arg "[node]" default="pve-test"'
+shell = "bash -c"
+run = """
+set -euo pipefail
+source scripts/test-node.sh
+TEST_ARG="${usage_node}"
+for n in $(test_resolve "${usage_node}"); do
+  test_node_load "$n"
+  if ! test_vm_exists; then
+    test_skip "VM does not exist"
+    continue
+  fi
+  if ! test_vm_running; then
+    echo "$TEST_NAME already stopped"
+    continue
+  fi
+  ssh root@$TEST_PVE_HOST qm stop $TEST_VMID
+  echo "Stopped $TEST_NAME"
+done
+"""
+
+[tasks."test:destroy"]
+description = "Delete test VMs including disks and snapshots (default: pve-test, or all)"
+usage = '''
+arg "[node]" default="pve-test"
+flag "-y --yes" help="Skip the confirmation when destroying all nodes"
+'''
+shell = "bash -c"
+run = """
+set -euo pipefail
+source scripts/test-node.sh
+TEST_ARG="${usage_node}"
+if [ "${usage_node}" = "all" ] && [ -z "${usage_yes:-}" ]; then
+  read -r -p "Destroy ALL test nodes ($TEST_NODES)? [y/N] " reply
+  if [ "$reply" != "y" ]; then echo "Aborted"; exit 1; fi
+fi
+for n in $(test_resolve "${usage_node}"); do
+  test_node_load "$n"
+  if ! test_vm_exists; then
+    echo "$TEST_NAME: nothing to destroy"
+    continue
+  fi
+  ssh root@$TEST_PVE_HOST "qm stop $TEST_VMID --skiplock 1 2>/dev/null || true; qm destroy $TEST_VMID --purge 1 --destroy-unreferenced-disks 1"
+  echo "Destroyed VM $TEST_VMID ($TEST_NAME)"
+done
 """
 
 [tasks."test:wait"]
-description = "Wait until the test VM answers on SSH (max 20 min)"
+description = "Wait until test VMs answer on SSH (max 20 min each, default: pve-test, or all)"
+usage = 'arg "[node]" default="pve-test"'
 shell = "bash -c"
 run = """
 set -euo pipefail
-echo -n "Waiting for SSH on $TEST_IP "
-for i in $(seq 1 120); do
-  if ssh -o ConnectTimeout=5 -o BatchMode=yes \
-       -o UserKnownHostsFile=ansible/known_hosts -o StrictHostKeyChecking=yes \
-       root@$TEST_IP true 2>/dev/null; then
-    echo " up!"; exit 0
+source scripts/test-node.sh
+TEST_ARG="${usage_node}"
+for n in $(test_resolve "${usage_node}"); do
+  test_node_load "$n"
+  if ! test_vm_exists; then
+    test_skip "VM does not exist"
+    continue
   fi
-  echo -n "."; sleep 10
+  if ! test_vm_running; then
+    test_skip "VM is not running"
+    continue
+  fi
+  echo -n "Waiting for SSH on $TEST_NAME ($TEST_IP) "
+  up=0
+  for i in $(seq 1 120); do
+    if ssh -o ConnectTimeout=5 -o BatchMode=yes \
+         -o UserKnownHostsFile=ansible/known_hosts -o StrictHostKeyChecking=yes \
+         root@$TEST_IP true 2>/dev/null; then
+      echo " up!"; up=1; break
+    fi
+    echo -n "."; sleep 10
+  done
+  if [ "$up" != "1" ]; then echo " timed out"; exit 1; fi
 done
-echo " timed out"; exit 1
 """
 
 [tasks."test:snapshot"]
-description = "Snapshot the test VM (default: clean-install)"
-usage = 'arg "[name]" default="clean-install"'
-run = "ssh root@$TEST_PVE_HOST qm snapshot $TEST_VMID ${usage_name}"
-
-[tasks."test:rollback"]
-description = "Roll back to a snapshot and start (default: clean-install)"
-usage = 'arg "[name]" default="clean-install"'
+description = "Snapshot test VMs (default: clean-install of pve-test, or all)"
+usage = '''
+arg "[name]" default="clean-install"
+arg "[node]" default="pve-test"
+'''
 shell = "bash -c"
 run = """
 set -euo pipefail
-ssh root@$TEST_PVE_HOST "qm stop $TEST_VMID 2>/dev/null || true; qm rollback $TEST_VMID ${usage_name} && qm start $TEST_VMID"
-mise run test:wait
+source scripts/test-node.sh
+TEST_ARG="${usage_node}"
+for n in $(test_resolve "${usage_node}"); do
+  test_node_load "$n"
+  if ! test_vm_exists; then
+    test_skip "VM does not exist"
+    continue
+  fi
+  if test_has_snapshot "${usage_name}"; then
+    test_skip "snapshot ${usage_name} already exists"
+    continue
+  fi
+  ssh root@$TEST_PVE_HOST qm snapshot $TEST_VMID ${usage_name}
+  echo "Snapshot ${usage_name} taken for $TEST_NAME"
+done
+"""
+
+[tasks."test:rollback"]
+description = "Roll back test VMs and start them (default: clean-install of pve-test, or all)"
+usage = '''
+arg "[name]" default="clean-install"
+arg "[node]" default="pve-test"
+'''
+shell = "bash -c"
+run = """
+set -euo pipefail
+source scripts/test-node.sh
+TEST_ARG="${usage_node}"
+eligible=""
+for n in $(test_resolve "${usage_node}"); do
+  test_node_load "$n"
+  if ! test_vm_exists; then
+    test_skip "VM does not exist"
+    continue
+  fi
+  if ! test_has_snapshot "${usage_name}"; then
+    test_skip "snapshot ${usage_name} does not exist"
+    continue
+  fi
+  eligible="$eligible $n"
+done
+if [ -z "$eligible" ]; then
+  echo "Nothing to roll back"
+  exit 0
+fi
+for n in $eligible; do
+  test_node_load "$n"
+  ssh root@$TEST_PVE_HOST "qm stop $TEST_VMID 2>/dev/null || true"
+done
+for n in $eligible; do
+  test_node_load "$n"
+  ssh root@$TEST_PVE_HOST "qm rollback $TEST_VMID ${usage_name}"
+done
+for n in $eligible; do
+  test_node_load "$n"
+  ssh root@$TEST_PVE_HOST "qm start $TEST_VMID"
+done
+for n in $eligible; do
+  mise run test:wait "$n"
+done
 """
 
 [tasks."test:snapshots"]
-description = "List snapshots of the test VM"
-run = "ssh root@$TEST_PVE_HOST qm listsnapshot $TEST_VMID"
-
-[tasks."test:fresh"]
-description = "Rebuild ISO, recreate VM, install, snapshot clean-install"
+description = "List snapshots of test VMs (default: pve-test, or all)"
+usage = 'arg "[node]" default="pve-test"'
 shell = "bash -c"
 run = """
 set -euo pipefail
-ssh root@$TEST_PVE_HOST "qm status $TEST_VMID" &>/dev/null && mise run test:destroy
-mise run test:upload
-mise run test:create
-mise run test:start
-mise run test:wait
-mise run test:snapshot clean-install
-echo "Fresh pve-test ready, snapshot 'clean-install' taken."
+source scripts/test-node.sh
+for n in $(test_resolve "${usage_node}"); do
+  test_node_load "$n"
+  echo "== $TEST_NAME ($TEST_VMID) =="
+  if test_vm_exists; then
+    ssh root@$TEST_PVE_HOST qm listsnapshot $TEST_VMID
+  else
+    echo "(VM does not exist)"
+  fi
+done
+"""
+
+[tasks."test:fresh"]
+description = "Rebuild ISO, recreate VM, install, snapshot clean-install (default: pve-test, or all in parallel)"
+usage = 'arg "[node]" default="pve-test"'
+shell = "bash -c"
+run = """
+set -euo pipefail
+source scripts/test-node.sh
+if [ "${usage_node}" = "all" ]; then
+  mise run test:destroy --yes all
+  mise run test:upload all
+  mise run test:create all
+  mise run test:start all
+  mise run test:wait all
+  mise run test:snapshot clean-install all
+  exit 0
+fi
+test_node_load "${usage_node}"
+if test_vm_exists; then
+  mise run test:destroy $TEST_NAME
+fi
+mise run test:upload $TEST_NAME
+mise run test:create $TEST_NAME
+mise run test:start $TEST_NAME
+mise run test:wait $TEST_NAME
+mise run test:snapshot clean-install $TEST_NAME
+echo "Fresh $TEST_NAME ready, snapshot 'clean-install' taken."
 """
 
 [tasks."test:play"]
-description = "Run 01-proxmox against the test VM"
-run = "mise run pve:play pve-test"
+description = "Run 01-proxmox against test nodes (default: pve-test, or all running nodes)"
+usage = 'arg "[hosts]" default="pve-test"'
+shell = "bash -c"
+run = """
+set -euo pipefail
+source scripts/test-node.sh
+hosts="${usage_hosts}"
+if [ "$hosts" = "all" ]; then
+  list=""
+  for n in $TEST_NODES; do
+    test_node_load "$n"
+    if test_vm_running; then
+      list="${list:+$list,}$n"
+    fi
+  done
+  if [ -z "$list" ]; then
+    echo "No running test nodes" >&2
+    exit 1
+  fi
+  hosts="$list"
+  echo "Running against: $hosts"
+fi
+mise run pve:play "$hosts"
+"""
 
 # -- Renovate
 

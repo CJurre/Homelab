@@ -1,0 +1,56 @@
+---
+- name: Install terminfo packages
+  ansible.builtin.apt:
+    name: "{{ proxmox_qol_terminfo_packages }}"
+    state: present
+
+- name: Install quality-of-life packages
+  ansible.builtin.apt:
+    name: "{{ proxmox_qol_packages }}"
+    state: present
+
+- name: Install the subscription popup patch script
+  ansible.builtin.copy:
+    src: pve-nag-patch.sh
+    dest: /usr/local/sbin/pve-nag-patch
+    owner: root
+    group: root
+    mode: "0755"
+  when: proxmox_qol_remove_subscription_popup | bool
+
+- name: Re-apply the patch after every dpkg run
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/99-pve-nag-patch
+    content: |
+      DPkg::Post-Invoke { "/usr/local/sbin/pve-nag-patch >/dev/null 2>&1 || true"; };
+    owner: root
+    group: root
+    mode: "0644"
+  when: proxmox_qol_remove_subscription_popup | bool
+
+- name: Apply the patch now
+  ansible.builtin.command:
+    cmd: /usr/local/sbin/pve-nag-patch
+  register: proxmox_qol_nag_patch
+  changed_when: "'patched' in proxmox_qol_nag_patch.stdout"
+  when: proxmox_qol_remove_subscription_popup | bool
+
+- name: Check whether xterm-ghostty is known
+  ansible.builtin.command:
+    cmd: infocmp xterm-ghostty
+  register: proxmox_qol_ghostty
+  changed_when: false
+  failed_when: proxmox_qol_ghostty.rc not in [0, 1]
+  check_mode: false
+
+- name: Install the xterm-ghostty terminfo
+  ansible.builtin.copy:
+    src: xterm-ghostty.terminfo
+    dest: /root/xterm-ghostty.terminfo
+    mode: "0644"
+  when: proxmox_qol_ghostty.rc != 0
+
+- name: Compile the xterm-ghostty terminfo
+  ansible.builtin.command:
+    cmd: tic -x /root/xterm-ghostty.terminfo
+  when: proxmox_qol_ghostty.rc != 0

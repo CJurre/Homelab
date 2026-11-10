@@ -1,0 +1,206 @@
+---
+- name: "[Check] Bulk disk serial is long enough"
+  ansible.builtin.assert:
+    that: proxmox_storage_bulk_disk_serial | length > 4
+    fail_msg: "proxmox_storage_bulk_disk_serial '{{ proxmox_storage_bulk_disk_serial }}' is too short, check that it is the correct serial"
+
+- name: Find by-id links for the bulk disk serial
+  ansible.builtin.find:
+    paths: /dev/disk/by-id
+    file_type: link
+    patterns:
+      - "*{{ proxmox_storage_bulk_disk_serial }}*"
+    excludes:
+      - "*-part*"
+  register: proxmox_storage_found
+
+- name: Resolve each link to its real device
+  ansible.builtin.command:
+    cmd: "readlink -f {{ item.path }}"
+  loop: "{{ proxmox_storage_found.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: proxmox_storage_resolved
+  changed_when: false
+  check_mode: false
+
+- name: Collect the unique real devices
+  ansible.builtin.set_fact:
+    proxmox_storage_bulk_devices: "{{ proxmox_storage_resolved.results | map(attribute='stdout') | unique | list }}"
+
+- name: "[Check] Exactly one disk matches the serial"
+  ansible.builtin.assert:
+    that: proxmox_storage_bulk_devices | length == 1
+    fail_msg: "Expected exactly 1 disk with serial {{ proxmox_storage_bulk_disk_serial }}, found {{ proxmox_storage_bulk_devices | length }}: {{ proxmox_storage_bulk_devices }}"
+
+- name: Show what was found
+  ansible.builtin.debug:
+    var: proxmox_storage_bulk_devices
+    verbosity: 1
+
+- name: Get the device type
+  ansible.builtin.command:
+    cmd: "lsblk -dno TYPE {{ proxmox_storage_bulk_devices[0] }}"
+  register: proxmox_storage_disk_type
+  changed_when: false
+  check_mode: false
+
+- name: "[Check] Found device is a whole disk"
+  ansible.builtin.assert:
+    that: proxmox_storage_disk_type.stdout | trim == 'disk'
+    fail_msg: "{{ proxmox_storage_bulk_devices[0] }} is of type '{{ proxmox_storage_disk_type.stdout | trim }}', expected 'disk'"
+
+- name: Get the disk size
+  ansible.builtin.command:
+    cmd: "lsblk -bdno SIZE {{ proxmox_storage_bulk_devices[0] }}"
+  register: proxmox_storage_disk_size
+  changed_when: false
+  check_mode: false
+
+- name: "[Check] Disk is at least the minimum size"
+  ansible.builtin.assert:
+    that: (proxmox_storage_disk_size.stdout | trim | int) >= (proxmox_storage_bulk_disk_min_size | int)
+    fail_msg: "Disk {{ proxmox_storage_bulk_devices[0] }} is {{ proxmox_storage_disk_size.stdout | trim }} bytes, smaller than the minimum of {{ proxmox_storage_bulk_disk_min_size }}"
+
+- name: Pick the by-id path to give to ZFS
+  ansible.builtin.set_fact:
+    proxmox_storage_bulk_by_id_path: "{{ proxmox_storage_found.files | map(attribute='path') | sort | first }}"
+
+- name: List the disk and all of its partitions
+  ansible.builtin.command:
+    cmd: "lsblk -nlo PATH {{ proxmox_storage_bulk_devices[0] }}"
+  register: proxmox_storage_disk_cmd
+  changed_when: false
+  check_mode: false
+
+- name: List the devices that make up rpool
+  ansible.builtin.command:
+    cmd: zpool list -v -H -P -L -o name rpool
+  register: proxmox_storage_rpool_cmd
+  changed_when: false
+  failed_when: proxmox_storage_rpool_cmd.rc not in [0, 1]
+  check_mode: false
+
+- name: Collect the device lists
+  ansible.builtin.set_fact:
+    proxmox_storage_disk_paths: "{{ proxmox_storage_disk_cmd.stdout_lines | map('trim') | list }}"
+    proxmox_storage_rpool_paths: "{{ proxmox_storage_rpool_cmd.stdout_lines | map('trim') | select('match', '^/dev/') | list }}"
+
+- name: "[Check] The disk is not part of rpool"
+  ansible.builtin.assert:
+    that: proxmox_storage_disk_paths | intersect(proxmox_storage_rpool_paths) | length == 0
+    fail_msg: "{{ proxmox_storage_bulk_devices[0] }} is used by rpool ({{ proxmox_storage_disk_paths | intersect(proxmox_storage_rpool_paths) }}), refusing to touch it"
+
+- name: Check whether the pool already exists
+  ansible.builtin.command:
+    cmd: "zpool list -H -o name {{ proxmox_storage_pool_name }}"
+  register: proxmox_storage_pool_cmd
+  changed_when: false
+  failed_when: proxmox_storage_pool_cmd.rc not in [0, 1]
+  check_mode: false
+
+- name: Record whether the pool exists
+  ansible.builtin.set_fact:
+    proxmox_storage_pool_exists: "{{ proxmox_storage_pool_cmd.rc == 0 }}"
+
+- name: List the devices of the existing pool
+  ansible.builtin.command:
+    cmd: "zpool list -v -H -P -L -o name {{ proxmox_storage_pool_name }}"
+  register: proxmox_storage_pool_devices_cmd
+  changed_when: false
+  check_mode: false
+  when: proxmox_storage_pool_exists
+
+- name: "[Check] The existing pool lives on the expected disk"
+  ansible.builtin.assert:
+    that: proxmox_storage_disk_paths | intersect(proxmox_storage_pool_devices_cmd.stdout_lines | map('trim') | list) | length > 0
+    fail_msg: "Pool {{ proxmox_storage_pool_name }} exists but is not on {{ proxmox_storage_bulk_devices[0] }}"
+  when: proxmox_storage_pool_exists
+
+- name: Prepare a new pool
+  when: not proxmox_storage_pool_exists
+  block:
+    - name: List mountpoints on the disk
+      ansible.builtin.command:
+        cmd: "lsblk -nlo MOUNTPOINTS {{ proxmox_storage_bulk_devices[0] }}"
+      register: proxmox_storage_mounts_cmd
+      changed_when: false
+      check_mode: false
+
+    - name: "[Check] Nothing on the disk is mounted"
+      ansible.builtin.assert:
+        that: proxmox_storage_mounts_cmd.stdout_lines | map('trim') | select | list | length == 0
+        fail_msg: "{{ proxmox_storage_bulk_devices[0] }} has mounted filesystems: {{ proxmox_storage_mounts_cmd.stdout_lines }}"
+
+    - name: List the device types on the disk
+      ansible.builtin.command:
+        cmd: "lsblk -nlo TYPE {{ proxmox_storage_bulk_devices[0] }}"
+      register: proxmox_storage_types_cmd
+      changed_when: false
+      check_mode: false
+
+    - name: "[Check] The disk has no partitions or other children"
+      ansible.builtin.assert:
+        that: proxmox_storage_types_cmd.stdout_lines | map('trim') | list == ['disk']
+        fail_msg: "{{ proxmox_storage_bulk_devices[0] }} has partitions or other layers: {{ proxmox_storage_types_cmd.stdout_lines }}"
+
+    - name: List existing signatures on the disk
+      ansible.builtin.command:
+        cmd: "wipefs --no-act {{ proxmox_storage_bulk_devices[0] }}"
+      register: proxmox_storage_signatures_cmd
+      changed_when: false
+      check_mode: false
+
+    - name: "[Check] The disk has no existing signatures"
+      ansible.builtin.assert:
+        that: proxmox_storage_signatures_cmd.stdout | trim | length == 0
+        fail_msg: "{{ proxmox_storage_bulk_devices[0] }} already contains data signatures, wipe it by hand if you are sure:\n{{ proxmox_storage_signatures_cmd.stdout }}"
+
+    - name: "[Check] Pool creation is explicitly allowed for this host"
+      ansible.builtin.assert:
+        that: proxmox_storage_allow_pool_create | bool
+        fail_msg: "All checks passed, but proxmox_storage_allow_pool_create is false. Set it to true for this host to create pool {{ proxmox_storage_pool_name }} on {{ proxmox_storage_bulk_by_id_path }}"
+
+    - name: Create the pool
+      ansible.builtin.command:
+        argv:
+          - zpool
+          - create
+          - -o
+          - "ashift={{ proxmox_storage_ashift }}"
+          - -O
+          - compression=lz4
+          - -O
+          - atime=off
+          - -O
+          - acltype=posixacl
+          - -O
+          - xattr=sa
+          - "{{ proxmox_storage_pool_name }}"
+          - "{{ proxmox_storage_bulk_by_id_path }}"
+
+- name: Read the pool health
+  ansible.builtin.command:
+    cmd: "zpool status -x {{ proxmox_storage_pool_name }}"
+  register: proxmox_storage_health_cmd
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: "[Check] The pool is healthy"
+  ansible.builtin.assert:
+    that: "'is healthy' in proxmox_storage_health_cmd.stdout"
+    fail_msg: "{{ proxmox_storage_health_cmd.stdout }}"
+  when: not ansible_check_mode
+
+- name: Read the pool ashift
+  ansible.builtin.command:
+    cmd: "zpool get -H -o value ashift {{ proxmox_storage_pool_name }}"
+  register: proxmox_storage_ashift_cmd
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: "[Check] The pool uses the expected ashift"
+  ansible.builtin.assert:
+    that: proxmox_storage_ashift_cmd.stdout | trim == proxmox_storage_ashift | string
+    fail_msg: "Pool ashift is {{ proxmox_storage_ashift_cmd.stdout | trim }}, expected {{ proxmox_storage_ashift }}"
+  when: not ansible_check_mode
